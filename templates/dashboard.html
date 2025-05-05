@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Discators{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Your Discators</h1>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Create New Discator</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('create_discator') }}">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Discator Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g., Discord Server Announcement">
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Create Discator</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h5 class="card-title">How to Use Discators</h5>
+                <ol>
+                    <li>Create a new discator with a descriptive name</li>
+                    <li>Copy the discator link from your list</li>
+                    <li>In Discord, embed the image by posting the URL</li>
+                    <li>The first ping records when the message was sent</li>
+                    <li>Subsequent pings count as views</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-light">
+        <h5 class="mb-0">Your Discators</h5>
+    </div>
+    <div class="card-body">
+        {% if discators %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Created</th>
+                            <th>First View</th>
+                            <th>Views</th>
+                            <th>Discator URL</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for discator in discators %}
+                            <tr>
+                                <td>{{ discator.name }}</td>
+                                <td>{{ discator.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    {% if discator.first_view %}
+                                        {{ discator.first_view.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark">Not viewed yet</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ discator.view_count }}</td>
+                                <td>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control form-control-sm pixel-url" 
+                                            value="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}" readonly>
+                                        <button class="btn btn-sm btn-outline-secondary copy-btn" 
+                                            data-url="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}">
+                                            Copy
+                                        </button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('discator_details', discator_id=discator.id) }}" class="btn btn-sm btn-primary">
+                                        Details
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-0">
+                You haven't created any discators yet. Create your first one above!
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle copy button clicks
+        document.querySelectorAll('.copy-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const url = this.getAttribute('data-url');
+                navigator.clipboard.writeText(url).then(() => {
+                    // Change button text to "Copied!" temporarily
+                    const originalText = this.textContent;
+                    this.textContent = 'Copied!';
+                    
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                    }, 2000);
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

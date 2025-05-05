@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2 text-center">
+        <h1 class="display-4 mb-4">Welcome to Discators</h1>
+        <p class="lead">Count views of your Discord messages with invisible Discators</p>
+        
+        <!-- Call to action box -->
+        <div class="card my-5">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Ready to start tracking message views?</h4>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <p class="mb-0">Create your first discator now and start tracking message views in Discord</p>
+                    </div>
+                    <div class="col-md-4 text-center text-md-end">
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">Create a Discator</a>
+                        {% else %}
+                            <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg">Get Started</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="my-5">
+            <img src="{{ url_for('static', filename='img/tracking-pixel.png') }}" alt="Discator Demo" class="img-fluid rounded shadow">
+        </div>
+        
+        <div class="row my-5">
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Works in DMs, Servers & Groups</h5>
+                        <p class="card-text">Discators work anywhere you have embed permissions, whether that's a server, group or DM.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Know When Messages Are Sent</h5>
+                        <p class="card-text">Track the first view to know when your message was successfully sent.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Count Message Views</h5>
+                        <p class="card-text">Track how many times your message has been viewed in a Discord channel.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="my-5">
+            {% if current_user.is_authenticated %}
+                <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">Go to Dashboard</a>
+            {% else %}
+                <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg me-3">Register Now</a>
+                <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-lg">Login</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

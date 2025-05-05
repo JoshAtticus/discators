@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block title %}Discator Details - {{ discator.name }} - Discators{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back to Dashboard
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h4 class="mb-0">{{ discator.name }}</h4>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <table class="table table-borderless">
+                    <tr>
+                        <th>Created:</th>
+                        <td>{{ discator.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    </tr>
+                    <tr>
+                        <th>First View:</th>
+                        <td>
+                            {% if discator.first_view %}
+                                {{ discator.first_view.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {% else %}
+                                <span class="badge bg-warning text-dark">Not viewed yet</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Total Views:</th>
+                        <td><strong>{{ discator.view_count }}</strong></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <div class="input-group mb-3">
+                    <span class="input-group-text">Discator URL</span>
+                    <input type="text" class="form-control" value="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}" readonly id="discatorUrl">
+                    <button class="btn btn-outline-secondary" type="button" id="copyBtn">Copy</button>
+                </div>
+                <div class="alert alert-info">
+                    <strong>How to use:</strong> Paste this URL in a Discord message to track views. 
+                    The URL will be automatically converted to an invisible image.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">View History</h5>
+    </div>
+    <div class="card-body">
+        {% if views %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Timestamp</th>
+                            <th>User Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for view in views %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ view.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td><small class="text-muted">{{ view.user_agent }}</small></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-0">
+                This discator hasn't been viewed yet. Share it on Discord to start tracking views!
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const copyBtn = document.getElementById('copyBtn');
+        const discatorUrl = document.getElementById('discatorUrl');
+        
+        copyBtn.addEventListener('click', function() {
+            discatorUrl.select();
+            document.execCommand('copy');
+            
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+                copyBtn.textContent = originalText;
+            }, 2000);
+        });
+    });
+</script>
+{% endblock %}

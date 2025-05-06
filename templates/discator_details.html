@@ -22,6 +22,22 @@
                         <td>{{ discator.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                     </tr>
                     <tr>
+                        <th>Status:</th>
+                        <td>
+                            {% if discator.waiting_for_discord %}
+                                <span class="badge bg-warning">
+                                    <span class="status-indicator status-waiting"></span>
+                                    Waiting for Discord bot
+                                </span>
+                            {% else %}
+                                <span class="badge bg-success">
+                                    <span class="status-indicator status-active"></span>
+                                    Active
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
                         <th>First View:</th>
                         <td>
                             {% if discator.first_view %}
@@ -35,6 +51,23 @@
                         <th>Total Views:</th>
                         <td><strong>{{ discator.view_count }}</strong></td>
                     </tr>
+                    <tr>
+                        <th>Auto-Delete:</th>
+                        <td>
+                            {% if discator.auto_delete %}
+                                <span class="badge bg-danger">Will be deleted after {{ discator.auto_delete_after }} hours</span>
+                                {% if discator.first_view %}
+                                    <div class="mt-1 small">
+                                        <span class="text-muted">Estimated deletion: 
+                                            {{ (discator.first_view + timedelta(hours=discator.auto_delete_after)).strftime('%Y-%m-%d %H:%M:%S') }}
+                                        </span>
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <span class="badge bg-secondary">Not enabled</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                 </table>
             </div>
             <div class="col-md-6">
@@ -47,9 +80,53 @@
                     <strong>How to use:</strong> Paste this URL in a Discord message to track views. 
                     The URL will be automatically converted to an invisible image.
                 </div>
+                
+                <!-- Auto-delete settings -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Auto-Delete Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('update_discator', discator_id=discator.id) }}">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" value="true" id="autoDelete" name="auto_delete" 
+                                    {% if discator.auto_delete %}checked{% endif %} onchange="toggleAutoDeleteOptions()">
+                                <label class="form-check-label" for="autoDelete">
+                                    Automatically delete this discator
+                                </label>
+                            </div>
+                            
+                            <div id="autoDeleteOptions" {% if not discator.auto_delete %}style="display:none"{% endif %}>
+                                <div class="mb-3">
+                                    <label for="autoDeleteAfter" class="form-label">Delete after how many hours from first view:</label>
+                                    <select class="form-select" id="autoDeleteAfter" name="auto_delete_after">
+                                        <option value="1" {% if discator.auto_delete_after == 1 %}selected{% endif %}>1 hour</option>
+                                        <option value="6" {% if discator.auto_delete_after == 6 %}selected{% endif %}>6 hours</option>
+                                        <option value="12" {% if discator.auto_delete_after == 12 %}selected{% endif %}>12 hours</option>
+                                        <option value="24" {% if discator.auto_delete_after == 24 %}selected{% endif %}>24 hours (1 day)</option>
+                                        <option value="48" {% if discator.auto_delete_after == 48 %}selected{% endif %}>48 hours (2 days)</option>
+                                        <option value="72" {% if discator.auto_delete_after == 72 %}selected{% endif %}>72 hours (3 days)</option>
+                                        <option value="168" {% if discator.auto_delete_after == 168 %}selected{% endif %}>168 hours (1 week)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Save Settings</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+</div>
+
+<!-- Delete discator button -->
+<div class="mb-4 text-end">
+    <form method="POST" action="{{ url_for('delete_discator', discator_id=discator.id) }}" onsubmit="return confirm('Are you sure you want to delete this discator? This cannot be undone.')">
+        <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash"></i> Delete Discator
+        </button>
+    </form>
 </div>
 
 <div class="card">
@@ -105,5 +182,14 @@
             }, 2000);
         });
     });
+    
+    function toggleAutoDeleteOptions() {
+        const autoDeleteCheckbox = document.getElementById('autoDelete');
+        const autoDeleteOptions = document.getElementById('autoDeleteOptions');
+        
+        if (autoDeleteOptions) {
+            autoDeleteOptions.style.display = autoDeleteCheckbox.checked ? 'block' : 'none';
+        }
+    }
 </script>
 {% endblock %}

@@ -43,10 +43,21 @@ class Discator(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     views = db.relationship('DiscatorView', backref='discator', lazy=True)
     first_view = db.Column(db.DateTime, nullable=True)
+    auto_delete = db.Column(db.Boolean, default=False)
+    auto_delete_after = db.Column(db.Integer, default=24)  # Hours after first view
+    waiting_for_discord = db.Column(db.Boolean, default=True)  # Flag to track if we're waiting for Discord bot view
     
     @property
     def view_count(self):
         return len(self.views)
+    
+    @property
+    def should_delete(self):
+        if not self.auto_delete or not self.first_view:
+            return False
+            
+        hours_since_first_view = (datetime.utcnow() - self.first_view).total_seconds() / 3600
+        return hours_since_first_view >= self.auto_delete_after
 
 class DiscatorView(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -120,21 +131,71 @@ def create_discator():
     discator_name = request.form['name']
     discator_uuid = uuid.uuid4().hex
     
+    # Check if auto-delete is enabled
+    auto_delete = 'auto_delete' in request.form
+    auto_delete_after = request.form.get('auto_delete_after', 24, type=int)
+    
     discator = Discator(
         uuid=discator_uuid,
         name=discator_name,
-        user_id=current_user.id
+        user_id=current_user.id,
+        waiting_for_discord=True,
+        auto_delete=auto_delete,
+        auto_delete_after=auto_delete_after
     )
     
     db.session.add(discator)
     db.session.commit()
     
-    flash(f'Discator "{discator_name}" created successfully')
+    # Return to dashboard with the new discator ID as a parameter
+    return redirect(url_for('dashboard', new_discator=discator.id))
+
+@app.route('/update-discator/<int:discator_id>', methods=['POST'])
+@login_required
+def update_discator(discator_id):
+    discator = Discator.query.get_or_404(discator_id)
+    
+    # Make sure the current user owns this discator
+    if discator.user_id != current_user.id:
+        flash('You do not have permission to update this discator')
+        return redirect(url_for('dashboard'))
+    
+    if 'auto_delete' in request.form:
+        discator.auto_delete = True
+        discator.auto_delete_after = request.form.get('auto_delete_after', 24, type=int)
+    else:
+        discator.auto_delete = False
+    
+    db.session.commit()
+    flash(f'Discator "{discator.name}" updated successfully')
+    return redirect(url_for('discator_details', discator_id=discator_id))
+
+@app.route('/delete-discator/<int:discator_id>', methods=['POST'])
+@login_required
+def delete_discator(discator_id):
+    discator = Discator.query.get_or_404(discator_id)
+    
+    # Make sure the current user owns this discator
+    if discator.user_id != current_user.id:
+        flash('You do not have permission to delete this discator')
+        return redirect(url_for('dashboard'))
+    
+    # Delete all associated views first
+    DiscatorView.query.filter_by(discator_id=discator_id).delete()
+    
+    # Delete the discator
+    db.session.delete(discator)
+    db.session.commit()
+    
+    flash(f'Discator "{discator.name}" deleted successfully')
     return redirect(url_for('dashboard'))
 
 @app.route('/discator/<uuid>')
 def serve_discator(uuid):
     discator = Discator.query.filter_by(uuid=uuid).first_or_404()
+    
+    # Check if this is a Discord bot view (typically contains "Discordbot" in user agent)
+    is_discord_bot = "Discordbot" in request.user_agent.string
     
     # Record this view
     view = DiscatorView(
@@ -144,9 +205,21 @@ def serve_discator(uuid):
     )
     db.session.add(view)
     
-    # Set first view time if this is the first time
-    if not discator.first_view:
+    # If we're waiting for Discord and this is a Discord bot view, 
+    # mark that we're no longer waiting and set first_view
+    if discator.waiting_for_discord and is_discord_bot:
+        discator.waiting_for_discord = False
         discator.first_view = datetime.utcnow()
+    # If we're not waiting and there's no first_view yet (backwards compatibility)
+    elif not discator.waiting_for_discord and not discator.first_view:
+        discator.first_view = datetime.utcnow()
+    
+    # Check if this discator should be auto-deleted
+    if discator.should_delete:
+        # Record that we're going to delete this discator
+        # We'll implement a cleanup job that regularly checks for discators to delete
+        # For now, just mark it as potentially deletable by adding a view count
+        pass
     
     db.session.commit()
     
@@ -191,6 +264,35 @@ def discator_stats(discator_id):
         "view_count": discator.view_count,
         "views": views
     })
+
+@app.before_request
+def check_auto_delete():
+    """Check for and delete any discators that meet auto-delete criteria"""
+    # Only run this check occasionally (not on every request)
+    if request.endpoint in ('static', 'serve_discator') or not hasattr(g, 'cleanup_run'):
+        return
+    
+    g.cleanup_run = True
+    
+    with app.app_context():
+        # Find all discators with auto-delete enabled that have a first view
+        auto_delete_discators = Discator.query.filter(
+            Discator.auto_delete == True,
+            Discator.first_view.isnot(None)
+        ).all()
+        
+        count = 0
+        for discator in auto_delete_discators:
+            if discator.should_delete:
+                # Delete views first
+                DiscatorView.query.filter_by(discator_id=discator.id).delete()
+                # Then delete the discator
+                db.session.delete(discator)
+                count += 1
+        
+        if count > 0:
+            db.session.commit()
+            app.logger.info(f"Auto-deleted {count} discators")
 
 # Initialize database if it doesn't exist
 with app.app_context():

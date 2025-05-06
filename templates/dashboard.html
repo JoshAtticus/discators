@@ -5,6 +5,27 @@
 {% block content %}
 <h1 class="mb-4">Your Discators</h1>
 
+<!-- Display newly created discator at the top if it exists -->
+{% if request.args.get('new_discator') %}
+  {% for discator in discators %}
+    {% if discator.id|string == request.args.get('new_discator') %}
+    <div class="discator-link-container new-discator">
+      <h4>Your new Discator: {{ discator.name }}</h4>
+      <p class="mb-2">Copy this link and paste it in Discord. We'll wait for the Discord bot to view it before counting views:</p>
+      <div class="input-group mb-3">
+        <input type="text" class="form-control" value="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}" readonly id="newDiscatorUrl">
+        <button class="btn btn-outline-primary" type="button" onclick="copyNewDiscatorUrl()">Copy Link</button>
+      </div>
+      <div class="alert alert-info mb-0">
+        <i class="bi bi-info-circle"></i> <strong>Status:</strong>
+        <span class="status-indicator status-waiting"></span>
+        Waiting for you to send this in Discord...
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
 <div class="row mb-4">
     <div class="col-md-6">
         <div class="card">
@@ -17,6 +38,25 @@
                         <label for="name" class="form-label">Discator Name</label>
                         <input type="text" class="form-control" id="name" name="name" required placeholder="e.g., Discord Server Announcement">
                     </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="autoDelete" name="auto_delete">
+                        <label class="form-check-label" for="autoDelete">Auto-delete after first view</label>
+                    </div>
+                    
+                    <div class="mb-3 auto-delete-options" id="autoDeleteOptions" style="display: none;">
+                        <label for="autoDeleteAfter" class="form-label">Delete after how many hours?</label>
+                        <select class="form-select" id="autoDeleteAfter" name="auto_delete_after">
+                            <option value="1">1 hour</option>
+                            <option value="6">6 hours</option>
+                            <option value="12">12 hours</option>
+                            <option value="24" selected>24 hours (1 day)</option>
+                            <option value="48">48 hours (2 days)</option>
+                            <option value="72">72 hours (3 days)</option>
+                            <option value="168">1 week</option>
+                        </select>
+                    </div>
+                    
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary">Create Discator</button>
                     </div>
@@ -34,6 +74,7 @@
                     <li>In Discord, embed the image by posting the URL</li>
                     <li>The first ping records when the message was sent</li>
                     <li>Subsequent pings count as views</li>
+                    <li><span class="text-primary">New:</span> Optionally auto-delete discators after a set time</li>
                 </ol>
             </div>
         </div>
@@ -54,6 +95,7 @@
                             <th>Created</th>
                             <th>First View</th>
                             <th>Views</th>
+                            <th>Status</th>
                             <th>Discator URL</th>
                             <th>Actions</th>
                         </tr>
@@ -71,6 +113,23 @@
                                     {% endif %}
                                 </td>
                                 <td>{{ discator.view_count }}</td>
+                                <td>
+                                    {% if discator.waiting_for_discord %}
+                                        <span class="badge bg-warning">
+                                            <span class="status-indicator status-waiting"></span>
+                                            Waiting for Discord
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-success">
+                                            <span class="status-indicator status-active"></span>
+                                            Active
+                                        </span>
+                                    {% endif %}
+                                    
+                                    {% if discator.auto_delete and discator.first_view %}
+                                        <span class="badge bg-danger">Auto-delete: {{ discator.auto_delete_after }}h</span>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     <div class="input-group">
                                         <input type="text" class="form-control form-control-sm pixel-url" 
@@ -118,6 +177,65 @@
                 });
             });
         });
+        
+        // Handle auto-delete checkbox toggle
+        const autoDeleteCheckbox = document.getElementById('autoDelete');
+        const autoDeleteOptions = document.getElementById('autoDeleteOptions');
+        
+        if (autoDeleteCheckbox && autoDeleteOptions) {
+            autoDeleteCheckbox.addEventListener('change', function() {
+                autoDeleteOptions.style.display = this.checked ? 'block' : 'none';
+            });
+        }
+        
+        // Function to copy new discator URL
+        window.copyNewDiscatorUrl = function() {
+            const urlInput = document.getElementById('newDiscatorUrl');
+            urlInput.select();
+            document.execCommand('copy');
+            
+            const copyBtn = urlInput.nextElementSibling;
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            
+            setTimeout(() => {
+                copyBtn.textContent = originalText;
+            }, 2000);
+        };
+        
+        // Set up auto-refresh to check status
+        const hasNewDiscator = "{{ 'true' if request.args.get('new_discator') else 'false' }}" === "true";
+        if (hasNewDiscator) {
+            // Check every 5 seconds if the status has changed
+            const intervalId = setInterval(function() {
+                fetch(window.location.pathname)
+                    .then(response => response.text())
+                    .then(html => {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        
+                        // If the status has changed, reload the page
+                        const statusElement = document.querySelector('.status-indicator.status-waiting');
+                        if (!statusElement) {
+                            clearInterval(intervalId);
+                            return;
+                        }
+                        
+                        const newDiscatorId = '{{ request.args.get("new_discator") }}';
+                        const discatorRow = Array.from(doc.querySelectorAll('tr')).find(row => {
+                            const detailsLink = row.querySelector('a[href*="discator-details"]');
+                            return detailsLink && detailsLink.getAttribute('href').includes(newDiscatorId);
+                        });
+                        
+                        if (discatorRow) {
+                            const statusCell = discatorRow.querySelector('td:nth-child(5)');
+                            if (statusCell && !statusCell.textContent.includes('Waiting')) {
+                                window.location.reload();
+                            }
+                        }
+                    });
+            }, 5000);
+        }
     });
 </script>
 {% endblock %}

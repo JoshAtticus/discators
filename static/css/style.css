@@ -98,15 +98,22 @@ footer {
     border-color: var(--blurple);
 }
 
-.form-control, .input-group-text {
-    background-color: var(--darkest-bg);
-    color: var(--light-text);
+.form-control, .input-group-text, input[readonly], .pixel-url {
+    background-color: var(--darkest-bg) !important;
+    color: var(--light-text) !important;
+    border-color: #40444b;
+}
+
+/* Specific fix for the URL box in the new discator section */
+.discator-link-container input[type="text"] {
+    background-color: var(--darkest-bg) !important;
+    color: var (--light-text) !important;
     border-color: #40444b;
 }
 
 .form-control:focus {
-    background-color: var(--darkest-bg);
-    color: var(--lighter-text);
+    background-color: var(--darkest-bg) !important;
+    color: var(--lighter-text) !important;
     border-color: var(--blurple);
     box-shadow: 0 0 0 0.25rem rgba(88, 101, 242, 0.25);
 }
@@ -125,7 +132,20 @@ footer {
 
 /* Hover effect for discator rows */
 .table-hover tbody tr:hover {
-    background-color: rgba(88, 101, 242, 0.1);
+    background-color: rgba(88, 101, 242, 0.2);
+    color: var(--lighter-text) !important;
+}
+
+.table-hover tbody tr:hover td {
+    color: var(--lighter-text) !important;
+}
+
+.table-hover tbody tr:hover .text-muted {
+    color: var(--light-text) !important;
+}
+
+.table-hover tbody tr:hover .badge {
+    color: inherit !important;
 }
 
 /* Animation for the copy button */
@@ -136,6 +156,7 @@ footer {
 
 .badge.bg-warning {
     background-color: #faa61a !important;
+    color: var(--darkest-bg) !important;
 }
 
 a {
@@ -144,4 +165,48 @@ a {
 
 a:hover {
     color: #4752c4;
+}
+
+/* Styling for discator link containers */
+.discator-link-container {
+    background-color: var(--darkest-bg);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin: 1rem 0;
+    border: 1px solid #40444b;
+}
+
+/* Styles for the auto-delete feature */
+.auto-delete-options {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background-color: rgba(88, 101, 242, 0.1);
+    border-radius: 0.5rem;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.status-active {
+    background-color: #3ba55c;
+}
+
+.status-waiting {
+    background-color: #faa61a;
+}
+
+/* Styles for newly created discator highlight */
+.new-discator {
+    animation: highlight-pulse 2s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+    0% { background-color: rgba(88, 101, 242, 0.1); }
+    50% { background-color: rgba(88, 101, 242, 0.3); }
+    100% { background-color: rgba(88, 101, 242, 0.1); }
 }

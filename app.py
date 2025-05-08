@@ -1,21 +1,25 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, g
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, g, session
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_sqlalchemy import SQLAlchemy
+from flask_socketio import SocketIO, emit, join_room
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image
 import uuid
 
 # Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24).hex()
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///discators.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize database
 db = SQLAlchemy(app)
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize login manager
 login_manager = LoginManager()
@@ -46,6 +50,8 @@ class Discator(db.Model):
     auto_delete = db.Column(db.Boolean, default=False)
     auto_delete_after = db.Column(db.Integer, default=24)  # Hours after first view
     waiting_for_discord = db.Column(db.Boolean, default=True)  # Flag to track if we're waiting for Discord bot view
+    waiting_since = db.Column(db.DateTime, default=datetime.utcnow)  # When we started waiting
+    track_type = db.Column(db.String(10), default="server") # "dm" for message sent/read or "server" for message views
     
     @property
     def view_count(self):
@@ -58,6 +64,15 @@ class Discator(db.Model):
             
         hours_since_first_view = (datetime.utcnow() - self.first_view).total_seconds() / 3600
         return hours_since_first_view >= self.auto_delete_after
+    
+    @property
+    def expired_waiting(self):
+        """Check if the discator has been waiting for too long (30 minutes)"""
+        if not self.waiting_for_discord:
+            return False
+            
+        minutes_waiting = (datetime.utcnow() - self.waiting_since).total_seconds() / 60
+        return minutes_waiting >= 30
 
 class DiscatorView(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -130,6 +145,7 @@ def dashboard():
 def create_discator():
     discator_name = request.form['name']
     discator_uuid = uuid.uuid4().hex
+    track_type = request.form.get('track_type', 'server')
     
     # Check if auto-delete is enabled
     auto_delete = 'auto_delete' in request.form
@@ -141,14 +157,40 @@ def create_discator():
         user_id=current_user.id,
         waiting_for_discord=True,
         auto_delete=auto_delete,
-        auto_delete_after=auto_delete_after
+        auto_delete_after=auto_delete_after,
+        track_type=track_type,
+        waiting_since=datetime.utcnow()
     )
     
     db.session.add(discator)
     db.session.commit()
     
-    # Return to dashboard with the new discator ID as a parameter
-    return redirect(url_for('dashboard', new_discator=discator.id))
+    # Redirect to the waiting page instead of dashboard
+    return redirect(url_for('waiting_for_discord', discator_id=discator.id))
+
+@app.route('/waiting/<int:discator_id>')
+@login_required
+def waiting_for_discord(discator_id):
+    discator = Discator.query.get_or_404(discator_id)
+    
+    # Make sure the current user owns this discator
+    if discator.user_id != current_user.id:
+        flash('You do not have permission to view this discator')
+        return redirect(url_for('dashboard'))
+    
+    # If discator is no longer waiting, redirect to details page
+    if not discator.waiting_for_discord:
+        flash('This discator has already received its first view.')
+        return redirect(url_for('discator_details', discator_id=discator_id))
+    
+    # If discator waiting has expired, delete it and redirect to dashboard
+    if discator.expired_waiting:
+        flash(f'Discator "{discator.name}" was deleted because it was not used within 30 minutes.')
+        db.session.delete(discator)
+        db.session.commit()
+        return redirect(url_for('dashboard'))
+    
+    return render_template('waiting_for_discord.html', discator=discator)
 
 @app.route('/update-discator/<int:discator_id>', methods=['POST'])
 @login_required
@@ -210,6 +252,13 @@ def serve_discator(uuid):
     if discator.waiting_for_discord and is_discord_bot:
         discator.waiting_for_discord = False
         discator.first_view = datetime.utcnow()
+        
+        # Notify clients via WebSocket
+        socketio.emit('discator_status', {
+            'status': 'viewed',
+            'discator_id': discator.id
+        }, room=f'discator_{discator.id}')
+        
     # If we're not waiting and there's no first_view yet (backwards compatibility)
     elif not discator.waiting_for_discord and not discator.first_view:
         discator.first_view = datetime.utcnow()
@@ -265,6 +314,22 @@ def discator_stats(discator_id):
         "views": views
     })
 
+@app.route('/api/discator-status/<int:discator_id>')
+@login_required
+def discator_status(discator_id):
+    """API endpoint to check discator status"""
+    discator = Discator.query.get_or_404(discator_id)
+    
+    # Make sure the current user owns this discator
+    if discator.user_id != current_user.id:
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    return jsonify({
+        "waiting_for_discord": discator.waiting_for_discord,
+        "expired_waiting": discator.expired_waiting,
+        "first_view": discator.first_view.isoformat() if discator.first_view else None,
+    })
+
 @app.before_request
 def check_auto_delete():
     """Check for and delete any discators that meet auto-delete criteria"""
@@ -294,9 +359,19 @@ def check_auto_delete():
             db.session.commit()
             app.logger.info(f"Auto-deleted {count} discators")
 
+# WebSocket event handlers
+@socketio.on('join_discator_room')
+def handle_join_room(data):
+    """Handle client joining a room for a specific discator"""
+    discator_id = data.get('discator_id')
+    if discator_id:
+        room = f'discator_{discator_id}'
+        join_room(room)
+
 # Initialize database if it doesn't exist
 with app.app_context():
     db.create_all()
 
+# Update main to use socketio instead of app.run
 if __name__ == '__main__':
-    app.run(port=4500)
+    socketio.run(app, debug=True, port=4500)

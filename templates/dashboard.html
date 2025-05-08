@@ -39,6 +39,17 @@
                         <input type="text" class="form-control" id="name" name="name" required placeholder="e.g., Discord Server Announcement">
                     </div>
                     
+                    <div class="mb-3">
+                        <label for="trackType" class="form-label">What are you tracking?</label>
+                        <select class="form-select" id="trackType" name="track_type">
+                            <option value="server" selected>Server/Group Message Views</option>
+                            <option value="dm">Direct Message Sent/Read</option>
+                        </select>
+                        <div class="form-text text-light mt-1">
+                            <small>This determines how the discator works in Discord.</small>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3 form-check">
                         <input type="checkbox" class="form-check-input" id="autoDelete" name="auto_delete">
                         <label class="form-check-label" for="autoDelete">Auto-delete after first view</label>
@@ -70,11 +81,16 @@
                 <h5 class="card-title">How to Use Discators</h5>
                 <ol>
                     <li>Create a new discator with a descriptive name</li>
-                    <li>Copy the discator link from your list</li>
-                    <li>In Discord, embed the image by posting the URL</li>
-                    <li>The first ping records when the message was sent</li>
-                    <li>Subsequent pings count as views</li>
-                    <li><span class="text-primary">New:</span> Optionally auto-delete discators after a set time</li>
+                    <li>Choose your tracking type:
+                        <ul>
+                            <li><strong>Server/Group Messages:</strong> Track views in servers & groups</li>
+                            <li><strong>Direct Messages:</strong> Track when messages are sent & read</li>
+                        </ul>
+                    </li>
+                    <li>Copy and paste the discator link in a Discord message</li>
+                    <li>Wait for Discord to process the link before sending</li>
+                    <li>Track your views in real-time</li>
+                    <li>Optionally set auto-delete to clean up old discators</li>
                 </ol>
             </div>
         </div>
@@ -96,7 +112,7 @@
                             <th>First View</th>
                             <th>Views</th>
                             <th>Status</th>
-                            <th>Discator URL</th>
+                            <th>Type</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -119,6 +135,9 @@
                                             <span class="status-indicator status-waiting"></span>
                                             Waiting for Discord
                                         </span>
+                                        <a href="{{ url_for('waiting_for_discord', discator_id=discator.id) }}" class="btn btn-sm btn-warning ms-1">
+                                            Continue Setup
+                                        </a>
                                     {% else %}
                                         <span class="badge bg-success">
                                             <span class="status-indicator status-active"></span>
@@ -131,19 +150,22 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control form-control-sm pixel-url" 
-                                            value="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}" readonly>
-                                        <button class="btn btn-sm btn-outline-secondary copy-btn" 
-                                            data-url="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}">
-                                            Copy
-                                        </button>
-                                    </div>
+                                    <span class="badge bg-info">
+                                        {{ "DM Read" if discator.track_type == "dm" else "Server Views" }}
+                                    </span>
                                 </td>
                                 <td>
-                                    <a href="{{ url_for('discator_details', discator_id=discator.id) }}" class="btn btn-sm btn-primary">
-                                        Details
-                                    </a>
+                                    <div class="btn-group">
+                                        <a href="{{ url_for('discator_details', discator_id=discator.id) }}" class="btn btn-sm btn-primary">
+                                            Details
+                                        </a>
+                                        {% if discator.waiting_for_discord %}
+                                            <button type="button" class="btn btn-sm btn-danger delete-discator" 
+                                                    data-id="{{ discator.id }}" data-name="{{ discator.name }}">
+                                                Delete
+                                            </button>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                         {% endfor %}
@@ -155,6 +177,28 @@
                 You haven't created any discators yet. Create your first one above!
             </div>
         {% endif %}
+    </div>
+</div>
+
+<!-- Modal for confirming deletion -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Discator</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <span id="discator-name"></span>?</p>
+                <p>This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="POST" id="delete-form">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -187,6 +231,20 @@
                 autoDeleteOptions.style.display = this.checked ? 'block' : 'none';
             });
         }
+        
+        // Handle delete buttons
+        document.querySelectorAll('.delete-discator').forEach(button => {
+            button.addEventListener('click', function() {
+                const discatorId = this.getAttribute('data-id');
+                const discatorName = this.getAttribute('data-name');
+                
+                document.getElementById('discator-name').textContent = discatorName;
+                document.getElementById('delete-form').action = `/delete-discator/${discatorId}`;
+                
+                const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+                deleteModal.show();
+            });
+        });
         
         // Function to copy new discator URL
         window.copyNewDiscatorUrl = function() {

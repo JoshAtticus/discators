@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+
+{% block title %}Waiting for Discord - {{ discator.name }} - Discators{% endblock %}
+
+{% block head %}
+{{ super() }}
+<meta name="discator-id" content="{{ discator.id }}">
+<meta name="discator-uuid" content="{{ discator.uuid }}">
+{% endblock %}
+
+{% block content %}
+<div class="waiting-container">
+    <div class="mb-3">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">{{ discator.name }}</h4>
+            <div id="countdown-timer" class="badge bg-light text-dark">30:00</div>
+        </div>
+        <div class="card-body">
+            <div class="waiting-status">
+                <div id="waiting-animation" class="waiting-circle"></div>
+                <h3 id="waiting-status-text">Waiting for Discord to process your link...</h3>
+                <p class="text-muted">This discator will automatically be deleted after 30 minutes if not used.</p>
+            </div>
+
+            <div class="discator-link-container mt-4">
+                <h5>Your Discator Link:</h5>
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="discatorUrl" value="{{ url_for('serve_discator', uuid=discator.uuid, _external=True) }}" readonly>
+                    <button class="btn btn-outline-primary" id="copyButton" type="button">Copy Link</button>
+                </div>
+                
+                <div class="track-type-info mt-3">
+                    <div class="alert alert-info">
+                        <h6><strong>Tracking Mode: {{ "Direct Messages" if discator.track_type == "dm" else "Server/Group Messages" }}</strong></h6>
+                        {% if discator.track_type == "dm" %}
+                            <p>This discator will track when your message is <strong>sent and read</strong> in Direct Messages.</p>
+                        {% else %}
+                            <p>This discator will track <strong>views</strong> of your message in servers and group chats.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="usage-steps mt-4">
+                    <h5>Next Steps:</h5>
+                    <ol>
+                        <li>Copy the above link</li>
+                        <li>Paste it in a Discord message</li>
+                        <li>Wait for Discord to process the preview (we'll detect this automatically)</li>
+                        <li>Send the message</li>
+                        <li>You'll be automatically redirected to view your discator statistics</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <div class="text-center mt-4">
+                <form method="POST" action="{{ url_for('delete_discator', discator_id=discator.id) }}" id="deleteForm">
+                    <button type="button" id="cancelButton" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Cancel and Delete Discator
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Success and Error messages that will be shown dynamically -->
+    <div id="success-container" class="alert alert-success" style="display: none;">
+        <h4><i class="bi bi-check-circle"></i> Discord has processed your link!</h4>
+        <p>Your discator is now active. Redirecting to the details page...</p>
+    </div>
+    
+    <div id="error-container" class="alert alert-danger" style="display: none;">
+        <h4><i class="bi bi-exclamation-triangle"></i> The waiting period has expired</h4>
+        <p>This discator was not used within 30 minutes and has been deleted.</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const discatorId = document.querySelector('meta[name="discator-id"]').getAttribute('content');
+        const discatorUuid = document.querySelector('meta[name="discator-uuid"]').getAttribute('content');
+        const deleteForm = document.getElementById('deleteForm');
+        const cancelButton = document.getElementById('cancelButton');
+        const copyButton = document.getElementById('copyButton');
+        const discatorUrl = document.getElementById('discatorUrl');
+        const waitingStatusText = document.getElementById('waiting-status-text');
+        const countdownTimer = document.getElementById('countdown-timer');
+        const waitingContainer = document.querySelector('.waiting-container');
+        const successContainer = document.getElementById('success-container');
+        const errorContainer = document.getElementById('error-container');
+        
+        // Initialize countdown
+        let timeLeft = 30 * 60; // 30 minutes in seconds
+        
+        // Connect to WebSocket
+        const socket = io();
+        
+        // Join a room specific to this discator
+        socket.emit('join_discator_room', {discator_id: discatorId});
+        
+        // Listen for discator updates
+        socket.on('discator_status', function(data) {
+            if (data.status === 'viewed' && data.discator_id == discatorId) {
+                handleDiscatorViewed();
+            }
+            
+            if (data.status === 'expired' && data.discator_id == discatorId) {
+                handleDiscatorExpired();
+            }
+        });
+        
+        // Start checking the status and updating the countdown
+        const countdownInterval = setInterval(() => {
+            timeLeft -= 1;
+            updateCountdown();
+            
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+                handleTimeExpired();
+            }
+            
+            // Periodically check the status directly
+            if (timeLeft % 10 === 0) { // Every 10 seconds
+                checkDiscatorStatus();
+            }
+        }, 1000);
+        
+        // Function to update the countdown display
+        function updateCountdown() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            countdownTimer.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Change color when less than 5 minutes left
+            if (timeLeft < 300) {
+                countdownTimer.classList.remove('bg-light');
+                countdownTimer.classList.add('bg-warning');
+            }
+            
+            // Change color when less than 1 minute left
+            if (timeLeft < 60) {
+                countdownTimer.classList.remove('bg-warning');
+                countdownTimer.classList.add('bg-danger');
+            }
+        }
+        
+        // Function to check the status via API
+        function checkDiscatorStatus() {
+            fetch(`/api/discator-status/${discatorId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.waiting_for_discord) {
+                        handleDiscatorViewed();
+                    } else if (data.expired_waiting) {
+                        handleDiscatorExpired();
+                    }
+                })
+                .catch(error => console.error('Error checking status:', error));
+        }
+        
+        // Function to handle when the discator is viewed
+        function handleDiscatorViewed() {
+            waitingStatusText.textContent = 'Discord has processed your link!';
+            document.getElementById('waiting-animation').classList.add('success');
+            
+            successContainer.style.display = 'block';
+            
+            // Redirect to the details page after a short delay
+            setTimeout(() => {
+                window.location.href = `/discator-details/${discatorId}`;
+            }, 3000);
+        }
+        
+        // Function to handle when the discator expires
+        function handleDiscatorExpired() {
+            waitingStatusText.textContent = 'The waiting period has expired';
+            document.getElementById('waiting-animation').classList.add('error');
+            
+            errorContainer.style.display = 'block';
+        }
+        
+        // Function to handle when time expires locally
+        function handleTimeExpired() {
+            // Delete the discator
+            deleteForm.submit();
+        }
+        
+        // Handle copy button click
+        copyButton.addEventListener('click', function() {
+            discatorUrl.select();
+            document.execCommand('copy');
+            
+            copyButton.textContent = 'Copied!';
+            setTimeout(() => {
+                copyButton.textContent = 'Copy Link';
+            }, 2000);
+        });
+        
+        // Handle cancel button click
+        cancelButton.addEventListener('click', function() {
+            if (confirm('Are you sure you want to cancel and delete this discator?')) {
+                deleteForm.submit();
+            }
+        });
+    });
+</script>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .waiting-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .waiting-status {
+        text-align: center;
+        padding: 2rem 0;
+    }
+    
+    .waiting-circle {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        border: 5px solid rgba(88, 101, 242, 0.3);
+        border-top-color: var(--blurple);
+        margin: 0 auto 1.5rem;
+        animation: spin 1.5s linear infinite;
+    }
+    
+    .waiting-circle.success {
+        border-color: #3ba55c;
+        animation: none;
+    }
+    
+    .waiting-circle.error {
+        border-color: #ed4245;
+        animation: none;
+    }
+    
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+    
+    .discator-link-container {
+        background-color: var(--darkest-bg);
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+    }
+    
+    .usage-steps {
+        background-color: rgba(88, 101, 242, 0.1);
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+</style>
+{% endblock %}
